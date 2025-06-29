@@ -42,19 +42,19 @@ def main():
     # print time to load data
     timer.print()
 
-    load_model = os.path.exists(params_path) and os.path.exists(history_path)
-
     # create an autoencoder
     model = Autoencoder().to(device)
     loss_fn = nn.MSELoss()
     optimizer = torch.optim.Adam(
         model.parameters(),
         lr=learning_rate,
-        weight_decay=regularization_rate,
+        # weight_decay=regularization_rate,
     )
 
     train_loss = np.array([])
     test_loss = np.array([])
+
+    load_model = os.path.exists(params_path) and os.path.exists(history_path)
 
     if load_model:
         print("Loading model...")
@@ -113,6 +113,43 @@ def main():
 
     plt.plot(train_loss)
     plt.plot(test_loss)
+    plt.show()
+
+    imgs = None
+    recon_imgs = None
+
+    model.eval()
+    with torch.no_grad():
+        for x, _ in test_dataloader:
+            imgs = np.append(imgs, x.numpy(), axis=0) if imgs is not None else x.numpy()
+
+            x = x.to(device)
+            pred = model(x)
+
+            recon_imgs = (
+                np.append(recon_imgs, pred.cpu().numpy(), axis=0)
+                if recon_imgs is not None
+                else pred.cpu().numpy()
+            )
+
+    n = 10
+    plt.figure(figsize=(20, 4))
+    for i in range(n):
+        # display original
+        ax = plt.subplot(2, n, i + 1)
+        plt.imshow(imgs[i][0])
+        plt.title("original")
+        plt.gray()
+        ax.get_xaxis().set_visible(False)
+        ax.get_yaxis().set_visible(False)
+
+        # display reconstruction
+        ax = plt.subplot(2, n, i + 1 + n)
+        plt.imshow(recon_imgs[i][0])
+        plt.title("reconstructed")
+        plt.gray()
+        ax.get_xaxis().set_visible(False)
+        ax.get_yaxis().set_visible(False)
     plt.show()
 
     timer.print()
