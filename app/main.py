@@ -3,6 +3,7 @@ import os
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+from sklearn.metrics import accuracy_score, precision_score, recall_score
 from torch import nn
 
 from app.data import load_data
@@ -16,13 +17,13 @@ def main():
     timer = Timer()
 
     # hyperparameters
-    batch_size = 64
+    batch_size = 512
     learning_rate = 1e-3
     epochs = 20
     regularization_rate = 1e-5
 
     directory = "model"
-    filename = "model"
+    filename = "anomaly_detection"
     params_path = f"{directory}/{filename}_params.pth"
     history_path = f"{directory}/{filename}_history.npy"
 
@@ -37,7 +38,12 @@ def main():
     print("Loading data...")
 
     # load data to dataloaders (batched)
-    train_dataloader, test_dataloader = load_data(batch_size=batch_size)
+    (
+        train_dataloader,
+        test_dataloader,
+        normal_test_dataloader,
+        anomalous_test_dataloader,
+    ) = load_data(batch_size=batch_size)
 
     # print time to load data
     timer.print()
@@ -111,48 +117,118 @@ def main():
 
     print("Showing result...")
 
-    plt.plot(train_loss)
-    plt.plot(test_loss)
+    plt.plot(train_loss, label="Training Loss")
+    plt.plot(test_loss, label="Validation Loss")
+    plt.legend()
     plt.show()
 
-    imgs = None
-    recon_imgs = None
+    all_preds = None  # Initialize to None
 
     model.eval()
     with torch.no_grad():
-        for x, _ in test_dataloader:
-            imgs = np.append(imgs, x.numpy(), axis=0) if imgs is not None else x.numpy()
-
+        for x, _ in normal_test_dataloader:
             x = x.to(device)
+
             pred = model(x)
+            # Aggregate pred tensors into a single NumPy array
+            if all_preds is None:
+                all_preds = pred.cpu().numpy()
+            else:
+                all_preds = np.append(all_preds, pred.cpu().numpy(), axis=0)
 
-            recon_imgs = (
-                np.append(recon_imgs, pred.cpu().numpy(), axis=0)
-                if recon_imgs is not None
-                else pred.cpu().numpy()
-            )
-
-    n = 10
-    plt.figure(figsize=(20, 4))
-    for i in range(n):
-        # display original
-        ax = plt.subplot(2, n, i + 1)
-        plt.imshow(imgs[i][0])
-        plt.title("original")
-        plt.gray()
-        ax.get_xaxis().set_visible(False)
-        ax.get_yaxis().set_visible(False)
-
-        # display reconstruction
-        ax = plt.subplot(2, n, i + 1 + n)
-        plt.imshow(recon_imgs[i][0])
-        plt.title("reconstructed")
-        plt.gray()
-        ax.get_xaxis().set_visible(False)
-        ax.get_yaxis().set_visible(False)
+    plt.plot(normal_test_dataloader.dataset[0][0].numpy(), "b")
+    plt.plot(all_preds[0], "r")
+    plt.fill_between(
+        np.arange(140),
+        all_preds[0],
+        normal_test_dataloader.dataset[0][0],
+        color="lightcoral",
+    )
+    plt.legend(labels=["Input", "Reconstruction", "Error"])
     plt.show()
 
+    all_preds = None  # Initialize to None
+
+    model.eval()
+    with torch.no_grad():
+        for x, _ in anomalous_test_dataloader:
+            x = x.to(device)
+
+            pred = model(x)
+            # Aggregate pred tensors into a single NumPy array
+            if all_preds is None:
+                all_preds = pred.cpu().numpy()
+            else:
+                all_preds = np.append(all_preds, pred.cpu().numpy(), axis=0)
+
+    plt.plot(anomalous_test_dataloader.dataset[0][0].numpy(), "b")
+    plt.plot(all_preds[0], "r")
+    plt.fill_between(
+        np.arange(140),
+        all_preds[0],
+        anomalous_test_dataloader.dataset[0][0],
+        color="lightcoral",
+    )
+    plt.legend(labels=["Input", "Reconstruction", "Error"])
+    plt.show()
+
+    all_losses = np.array([])
+
+    model.eval()
+    with torch.no_grad():
+        for x, _ in train_dataloader.dataset:
+            x = x.to(device)
+
+            pred = model(x)
+            loss = loss_fn(pred, x)
+            all_losses = np.append(all_losses, loss.cpu().numpy())
+
+    plt.hist(all_losses, bins=50)
+    plt.xlabel("Train loss")
+    plt.ylabel("No of examples")
+    plt.show()
+
+    threshold = np.mean(all_losses) + np.std(all_losses)
+    print("Threshold: ", threshold)
+
+    all_losses = np.array([])
+
+    model.eval()
+    with torch.no_grad():
+        for x, _ in anomalous_test_dataloader.dataset:
+            x = x.to(device)
+
+            pred = model(x)
+            loss = loss_fn(pred, x)
+            all_losses = np.append(all_losses, loss.cpu().numpy())
+
+    plt.hist(all_losses, bins=50)
+    plt.xlabel("Test loss")
+    plt.ylabel("No of examples")
+    plt.show()
+
+    all_preds = np.array([])
+
+    model.eval()
+    with torch.no_grad():
+        for x, _ in test_dataloader.dataset:
+            x = x.to(device)
+
+            pred = model(x)
+            loss = loss_fn(pred, x)
+            all_preds = np.append(all_preds, loss.cpu().numpy().item() < threshold)
+
+    all_preds.astype(np.bool)
+    all_labels = np.array([label for _, label in test_dataloader.dataset])
+    print_stats(all_preds, all_labels)
+
     timer.print()
+
+
+def print_stats(predictions, labels):
+    print("Accuracy = {}".format(accuracy_score(labels, predictions)))
+    print("Precision = {}".format(precision_score(labels, predictions)))
+    print("Recall = {}".format(recall_score(labels, predictions)))
 
 
 if __name__ == "__main__":
