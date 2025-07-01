@@ -24,8 +24,8 @@ def train_loop(
         optimizer.zero_grad()
 
         # feed forward
-        pred = model(x)
-        loss = loss_fn(pred, x)  # predict input itself
+        pred, mean, logvar = model(x)
+        loss = loss_fn(pred, x, mean, logvar)  # predict input itself
 
         # backpropagation
         loss.backward()
@@ -59,8 +59,8 @@ def test_loop(
             x = x.to(device)
 
             # test
-            pred = model(x)
-            loss = loss_fn(pred, x)  # predict input itself
+            pred, mean, logvar = model(x)
+            loss = loss_fn(pred, x, mean, logvar)  # predict input itself
 
             loss_sum += loss.item()
 

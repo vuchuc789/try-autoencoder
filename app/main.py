@@ -17,13 +17,13 @@ def main():
     timer = Timer()
 
     # hyperparameters
-    batch_size = 512
+    batch_size = 128
     learning_rate = 1e-3
     epochs = 20
     regularization_rate = 1e-5
 
     directory = "model"
-    filename = "anomaly_detection"
+    filename = "vae_anomaly_detection"
     params_path = f"{directory}/{filename}_params.pth"
     history_path = f"{directory}/{filename}_history.npy"
 
@@ -50,7 +50,15 @@ def main():
 
     # create an autoencoder
     model = Autoencoder().to(device)
-    loss_fn = nn.MSELoss()
+    # loss_fn = nn.MSELoss()
+
+    recon_loss_fn = nn.MSELoss()
+
+    def loss_fn(pred, x, mean, logvar):
+        recon_loss = recon_loss_fn(pred, x)
+        kl_div = -0.5 * torch.sum(1 + logvar - mean.pow(2) - logvar.exp())
+        return recon_loss + kl_div
+
     optimizer = torch.optim.Adam(
         model.parameters(),
         lr=learning_rate,
@@ -129,7 +137,7 @@ def main():
         for x, _ in normal_test_dataloader:
             x = x.to(device)
 
-            pred = model(x)
+            pred, _, _ = model(x)
             # Aggregate pred tensors into a single NumPy array
             if all_preds is None:
                 all_preds = pred.cpu().numpy()
@@ -154,7 +162,7 @@ def main():
         for x, _ in anomalous_test_dataloader:
             x = x.to(device)
 
-            pred = model(x)
+            pred, _, _ = model(x)
             # Aggregate pred tensors into a single NumPy array
             if all_preds is None:
                 all_preds = pred.cpu().numpy()
@@ -179,8 +187,8 @@ def main():
         for x, _ in train_dataloader.dataset:
             x = x.to(device)
 
-            pred = model(x)
-            loss = loss_fn(pred, x)
+            pred, mean, logvar = model(x)
+            loss = loss_fn(pred, x, mean, logvar)
             all_losses = np.append(all_losses, loss.cpu().numpy())
 
     plt.hist(all_losses, bins=50)
@@ -198,8 +206,8 @@ def main():
         for x, _ in anomalous_test_dataloader.dataset:
             x = x.to(device)
 
-            pred = model(x)
-            loss = loss_fn(pred, x)
+            pred, mean, logvar = model(x)
+            loss = loss_fn(pred, x, mean, logvar)
             all_losses = np.append(all_losses, loss.cpu().numpy())
 
     plt.hist(all_losses, bins=50)
@@ -214,8 +222,8 @@ def main():
         for x, _ in test_dataloader.dataset:
             x = x.to(device)
 
-            pred = model(x)
-            loss = loss_fn(pred, x)
+            pred, mean, logvar = model(x)
+            loss = loss_fn(pred, x, mean, logvar)
             all_preds = np.append(all_preds, loss.cpu().numpy().item() < threshold)
 
     all_preds.astype(np.bool)
